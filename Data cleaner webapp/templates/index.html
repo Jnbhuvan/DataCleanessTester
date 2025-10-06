@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Data Purity Analyzer</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>CSV Data Purity Analyzer</h1>
+        <p>Upload a CSV file to analyze data quality and purity metrics</p>
+        
+        <div class="upload-section">
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="file-input-wrapper">
+                    <input type="file" id="fileInput" name="file" accept=".csv" required>
+                    <label for="fileInput" class="file-label">Choose CSV File</label>
+                </div>
+                <button type="submit" class="submit-btn">Analyze Data Purity</button>
+            </form>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <p>Analyzing your dataset... Please wait.</p>
+        </div>
+
+        <div id="result" class="result-section hidden">
+            <h2>Dataset Analysis Results</h2>
+            <div id="resultContent"></div>
+        </div>
+
+        <div id="error" class="error-section hidden">
+            <h2>Error</h2>
+            <div id="errorContent"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showError('Please select a file');
+                return;
+            }
+            
+            // Show loading indicator
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('result').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').classList.add('hidden');
+                
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    showResult(data);
+                }
+            })
+            .catch(error => {
+                document.getElementById('loading').classList.add('hidden');
+                showError('Network error: ' + error.message);
+            });
+        });
+        
+        function showResult(data) {
+            const resultContent = document.getElementById('resultContent');
+            let html = '';
+            
+            // Basic Information
+            html += `<div class="result-item">
+                <h3>Basic Information</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Total Rows:</span>
+                        <span class="info-value">${data.row_count}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Total Columns:</span>
+                        <span class="info-value">${data.column_count}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Numeric Columns:</span>
+                        <span class="info-value">${data.purity_metrics.numeric_columns}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Categorical Columns:</span>
+                        <span class="info-value">${data.purity_metrics.categorical_columns}</span>
+                    </div>
+                </div>
+            </div>`;
+            
+            // Purity Metrics
+            const purity = data.purity_metrics;
+            html += `<div class="result-item">
+                <h3>Data Purity Analysis</h3>
+                <div class="purity-metrics">
+                    <div class="metric-card ${getPurityClass(purity.purity_score)}">
+                        <div class="metric-value">${purity.purity_score}%</div>
+                        <div class="metric-label">Overall Purity Score</div>
+                    </div>
+                    <div class="metric-grid">
+                        <div class="metric-item ${getMetricClass(purity.missing_percentage, 'missing')}">
+                            <span class="metric-title">Missing Values</span>
+                            <span class="metric-number">${purity.missing_percentage}%</span>
+                            <span class="metric-detail">${purity.missing_values} cells</span>
+                        </div>
+                        <div class="metric-item ${getMetricClass(purity.duplicate_percentage, 'duplicate')}">
+                            <span class="metric-title">Duplicate Rows</span>
+                            <span class="metric-number">${purity.duplicate_percentage}%</span>
+                            <span class="metric-detail">${purity.duplicate_rows} rows</span>
+                        </div>
+                        <div class="metric-item ${getMetricClass(purity.outlier_percentage, 'outlier')}">
+                            <span class="metric-title">Outliers</span>
+                            <span class="metric-number">${purity.outlier_percentage}%</span>
+                            <span class="metric-detail">${purity.outlier_count} values</span>
+                        </div>
+                        <div class="metric-item ${getMetricClass(100 - purity.data_type_consistency, 'dtype')}">
+                            <span class="metric-title">Data Type Consistency</span>
+                            <span class="metric-number">${purity.data_type_consistency}%</span>
+                            <span class="metric-detail">Standardized types</span>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+            
+            // Column Information
+            html += `<div class="result-item">
+                <h3>Column Information</h3>
+                <div class="columns-list">
+                    ${data.columns.map((col, index) => `
+                        <div class="column-item">
+                            <span class="column-name">${col}</span>
+                            <span class="column-type">${data.data_types[col]}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>`;
+            
+            // Sample Data
+            html += `<div class="result-item">
+                <h3>First 5 Rows Preview</h3>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                ${data.columns.map(col => `<th>${col}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.first_five_rows.map(row => `
+                                <tr>
+                                    ${data.columns.map(col => `<td>${row[col] !== null ? row[col] : '<em>null</em>'}</td>`).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+            
+            resultContent.innerHTML = html;
+            document.getElementById('result').classList.remove('hidden');
+        }
+        
+        function getPurityClass(score) {
+            if (score >= 90) return 'excellent';
+            if (score >= 75) return 'good';
+            if (score >= 60) return 'fair';
+            return 'poor';
+        }
+        
+        function getMetricClass(value, type) {
+            let threshold;
+            switch(type) {
+                case 'missing':
+                case 'duplicate':
+                case 'outlier':
+                    threshold = 5; // Lower is better
+                    break;
+                case 'dtype':
+                    threshold = 95; // Higher is better
+                    break;
+                default:
+                    threshold = 5;
+            }
+            
+            if (type === 'dtype') {
+                return value >= threshold ? 'good' : value >= 85 ? 'fair' : 'poor';
+            } else {
+                return value <= threshold ? 'good' : value <= 10 ? 'fair' : 'poor';
+            }
+        }
+        
+        function showError(message) {
+            document.getElementById('errorContent').textContent = message;
+            document.getElementById('error').classList.remove('hidden');
+        }
+        
+        // Update file input label to show selected file name
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const fileName = e.target.files[0] ? e.target.files[0].name : 'Choose CSV File';
+            document.querySelector('.file-label').textContent = fileName;
+        });
+    </script>
+</body>
+</html>
